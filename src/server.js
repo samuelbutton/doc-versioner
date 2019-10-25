@@ -9,25 +9,22 @@ const readline = require('readline');
 const {google} = require('googleapis');
 const os = require('os');
 
-// If modifying these scopes, delete token.json.
+// If modifying these scopes, delete token.json to allow for re-permissioning
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
-// The file token.json stores the user's access and refresh tokens, and is
-// created automatically when the authorization flow completes for the first
-// time.
 const TOKEN_PATH = 'token.json';
 
-// const databaseURL = process.env.DATABASE;
+const databaseURL = process.env.DATABASE;
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// MongoClient.connect(databaseURL, { useNewUrlParser: true })
-// 	.then(client => {
-// 		app.locals.db = client.db('shortener');
-// 	})
-// 	.catch(console.error('Failed to connect to the database'));
+MongoClient.connect(databaseURL, { useNewUrlParser: true })
+	.then(client => {
+		app.locals.db = client.db('versioner');
+	})
+	.catch(console.error('Failed to connect to the database'));
 
 // returns a document that matches the filter object passed to it or null
 // if no documents match the filter
@@ -36,42 +33,52 @@ app.use(bodyParser.json());
 
 app.get('/', (req, res) => {
 	const htmlPath = path.join(__dirname, 'public', 'index.html');
-	// sendFile takes directory path plus specific path given, in which the executing file is located
 	res.sendFile(htmlPath);
 });
 
 app.post('/new', (req, res) => {
-	let comment, content;
+	let comment, content, data;
 	comment = req.body.comment;
 	console.log(comment);
 	try {
 		fs.readFile('credentials.json', (err, content) => {
 		  if (err) return console.log('Error loading client secret file:', err);
-		  // Authorize a client with credentials, then call the Google Drive API.
-		  authorize(JSON.parse(content), versionFile);
+		  data = authorize(JSON.parse(content), versionFile);
 		});
-		// fs.readFile('credentials.json');
-		// .then(result => {
-		// 	authorize(JSON.parse(content), versionFile);
-		// });
 	} catch (err) {
 		return res.status(404).send(err);
 	}
-	res.json({
-		comment: req.body.comment,	
-	});
-	// const { db } = req.app.locals;
-	// shortenURL(db, originalURL.href)
-	// .then(result => {
-	// 	const doc = result.value;
-	// 	res.json({
-	// 		original_url: doc.original_url,	
-	// 		short_id: doc.short_id,
-	// 	});
-	// })
-	// .catch(console.error);
+	const { db } = req.app.locals;
+	saveVersion(db, data, comment)
+	.then(result => {
+		const doc = result.value;
+		res.json({
+			original_comment: doc.original_comment,	
+      version: doc.version,
+			time_stamp: doc.time_stamp,
+		});
+	})
+	.catch(console.error);
 });
 
+const saveVersion = (db, data, comment) => {
+  const versionComments = db.collection('versionComments');
+  var now = new Date();
+  return versionComments.findOneAndUpdate(
+    { time_stamp: now }, 
+    {
+      $setOnInsert: {
+        original_comment: comment,
+        version: data,
+        time_stamp: now
+      },
+    },
+    {
+      returnOriginal: false,
+      upsert: true,
+    }
+  );
+}
 
 /**
  * Create an OAuth2 client with the given credentials, and then execute the
@@ -85,10 +92,10 @@ function authorize(credentials, callback) {
       client_id, client_secret, redirect_uris[0]);
 
   // Check if we have previously stored a token.
-  fs.readFile(TOKEN_PATH, (err, token) => {
+  return fs.readFile(TOKEN_PATH, (err, token) => {
     if (err) return getAccessToken(oAuth2Client, callback);
     oAuth2Client.setCredentials(JSON.parse(token));
-    callback(oAuth2Client);
+    return callback(oAuth2Client);
   });
 }
 
@@ -134,11 +141,10 @@ async function versionFile(auth) {
   const fileId = '13eyL9rx1IxoTwztTcDu9XXKVal2NF0ehIInezKOzGLg';
   const filename = `Portland_ME_script_draft_v${today.getDate()}.${today.getMonth()+1}.${today.getFullYear()}.docx`;
 
-  await downloadFile(drive, filename, fileId);
+  console.log(await downloadFile(drive, filename, fileId));
 
-  var folderId = "1_AK0VpJ3rtq5xDVL0jg2ALWlZ8LJ9TWA";
-  var data = await uploadFile(drive, filename, folderId);  
-  return data;
+  // var folderId = "1_AK0VpJ3rtq5xDVL0jg2ALWlZ8LJ9TWA";
+  // var data = await uploadFile(drive, filename, folderId);  
 }
 
 async function downloadFile(drive, filename, fileId) {
@@ -147,14 +153,14 @@ async function downloadFile(drive, filename, fileId) {
 		{fileId, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
     	{responseType: 'stream'}
     );
-    await new Promise((resolve, reject) => {
-    res.data
-      .on('error', reject)
-      .pipe(dest)
-      .on('error', reject)
-      .on('finish', resolve);
-  	});
-  	return res.data;
+  return res;
+ //  await new Promise((resolve, reject) => {
+ //    res.data
+ //      .on('error', reject)
+ //      .on('finish', resolve);
+	// }).then(() => {
+ //    return res.data;3
+ //  })
 }
 
 async function uploadFile(drive, filename, folderId) {
