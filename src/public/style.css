@@ -15,6 +15,7 @@ html {
   --blue: #46ACCA;
   --brown: #D49667;
   --red: #980100;
+  --green: #7CFC00;
 }
 
 
@@ -39,7 +40,7 @@ body {
 
 .form-section {
   height: 400px;
-  border-bottom: 1px solid #ddd;
+  /*border-bottom: 1px solid #ddd;*/
 }
 
 .page-title {
@@ -47,7 +48,7 @@ body {
   font-size: 70px;
 }
 
-.submit-button {
+.submit-button, .download-button {
   display: block;
 }
 
@@ -65,13 +66,11 @@ body {
   margin-bottom: 40px;
 }
 
-.submit-button {
+.submit-button, .download-button {
   width: 180px;
   height: 40px;
   font-size: 16px;
   font-weight: 700;
-  border: 1px solid var(--red);
-  background-color: var(--red);
   color: white;
   box-shadow: 0 1px 1px rgba(0,0,0,.04);
   border-radius: 5px;
@@ -80,6 +79,17 @@ body {
   margin-left: auto;
   margin-right: auto;
 }
+
+.submit-button {
+  border: 1px solid var(--red);
+  background-color: var(--red);
+}
+
+.download-button {
+  border: 1px solid var(--green);
+  background-color: var(--green);
+}
+
 
 .result {
   margin-top: 50px;

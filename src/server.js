@@ -3,11 +3,12 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
-const { MongoClient } = require('mongodb');
+const mongodb = require('mongodb');
 const fs = require('fs');
 const readline = require('readline');
 const {google} = require('googleapis');
 const os = require('os');
+test = require('assert');
 
 // If modifying these scopes, delete token.json to allow for re-permissioning
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
@@ -20,7 +21,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-MongoClient.connect(databaseURL, { useNewUrlParser: true })
+mongodb.MongoClient.connect(databaseURL, { useNewUrlParser: true })
 	.then(client => {
 		app.locals.db = client.db('versioner');
 	})
@@ -39,46 +40,26 @@ app.get('/', (req, res) => {
 app.post('/new', (req, res) => {
 	let comment, content, data;
 	comment = req.body.comment;
-	console.log(comment);
 	try {
 		fs.readFile('credentials.json', (err, content) => {
-		  if (err) return console.log('Error loading client secret file:', err);
-		  data = authorize(JSON.parse(content), versionFile);
+		  data = authorize(JSON.parse(content), downloadFileToMDB);
 		});
 	} catch (err) {
 		return res.status(404).send(err);
 	}
-	const { db } = req.app.locals;
-	saveVersion(db, data, comment)
-	.then(result => {
-		const doc = result.value;
-		res.json({
-			original_comment: doc.original_comment,	
-      version: doc.version,
-			time_stamp: doc.time_stamp,
-		});
-	})
-	.catch(console.error);
+  console.log(data);
+ //  const { db } = req.app.locals;
+	// saveVersion(db, data, comment)
+	// .then(result => {
+	// 	const doc = result.value;
+	// 	res.json({
+	// 		original_comment: doc.original_comment,	
+ //      version: doc.version,
+	// 		time_stamp: doc.time_stamp,
+	// 	});
+	// })
+	// .catch(console.error);
 });
-
-const saveVersion = (db, data, comment) => {
-  const versionComments = db.collection('versionComments');
-  var now = new Date();
-  return versionComments.findOneAndUpdate(
-    { time_stamp: now }, 
-    {
-      $setOnInsert: {
-        original_comment: comment,
-        version: data,
-        time_stamp: now
-      },
-    },
-    {
-      returnOriginal: false,
-      upsert: true,
-    }
-  );
-}
 
 /**
  * Create an OAuth2 client with the given credentials, and then execute the
@@ -97,6 +78,106 @@ function authorize(credentials, callback) {
     oAuth2Client.setCredentials(JSON.parse(token));
     return callback(oAuth2Client);
   });
+}
+
+/**
+ * Lists the names and IDs of up to 10 files.
+ * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
+ */
+async function downloadFileToMDB(auth) {
+  const drive = google.drive({version: 'v3', auth});
+
+  var today = new Date();
+
+  // file information that can likely be saved with authentication
+  const fileId = '13eyL9rx1IxoTwztTcDu9XXKVal2NF0ehIInezKOzGLg';
+  const filename = `Portland_ME_script_draft_v${today.getDate()}.${today.getMonth()+1}.${today.getFullYear()}.docx`;
+
+  const dest = fs.createWriteStream(filename);
+  const res = await drive.files.export(
+    {fileId, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
+      {responseType: 'stream'}
+    );
+
+  const { db } = app.locals;
+
+  var bucket = new mongodb.GridFSBucket(db, {
+    chunkSizeBytes: 1024,
+    bucketName: 'versions'
+  });
+
+  // file saved
+  var uploadStream = bucket.openUploadStream('test.dat');
+  var id = uploadStream.id;
+
+  res.data.pipe(uploadStream).
+    on('error', function(error) {
+      assert.ifError(error);
+    }).
+    on('finish', function() {
+      console.log('done!');
+    });
+
+
+  var downloadStream = bucket.openDownloadStreamByName('test.dat');
+
+  uploadStream.once('finish', function() {
+    var downloadStream = bucket.openDownloadStreamByName('test.dat');
+
+    downloadStream.pipe(fs.createWriteStream('./output.docx')).
+      on('error', function(error) {
+        assert.ifError(error);
+      }).
+    on('finish', function() {
+      console.log('done2!');
+      // process.exit(0);
+    });
+  });
+
+
+  // version saved
+  const versionComments = db.collection('versions');
+  var now = new Date();
+  versionComments.findOneAndUpdate(
+    { time_stamp: now },
+    {
+      $setOnInsert: {
+        original_comment: "hardcoded comment",
+        versionName: filename,
+        time_stamp: now
+      },
+    },
+    {
+      returnOriginal: false,
+      upsert: true,
+    }
+  );
+
+
+  // take out await
+  // var res = await downloadFile(drive, filename, fileId);
+
+  // var folderId = "1_AK0VpJ3rtq5xDVL0jg2ALWlZ8LJ9TWA";
+  // var data = await uploadFile(drive, filename, folderId);  
+}
+
+const saveVersion = (db, data, comment) => {
+  const versionComments = db.collection('versionComments');
+  var now = new Date();
+  return versionComments.findOneAndUpdate(
+    { time_stamp: now },
+    {
+      $setOnInsert: {
+        original_comment: comment,
+        version: data,
+        time_stamp: now
+      },
+    },
+    {
+      returnOriginal: false,
+      upsert: true,
+    }
+  );
 }
 
 /**
@@ -130,29 +211,86 @@ function getAccessToken(oAuth2Client, callback) {
   });
 }
 
-/**
- * Lists the names and IDs of up to 10 files.
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-async function versionFile(auth) {
-  const drive = google.drive({version: 'v3', auth});
-
-  var today = new Date();
-  const fileId = '13eyL9rx1IxoTwztTcDu9XXKVal2NF0ehIInezKOzGLg';
-  const filename = `Portland_ME_script_draft_v${today.getDate()}.${today.getMonth()+1}.${today.getFullYear()}.docx`;
-
-  console.log(await downloadFile(drive, filename, fileId));
-
-  // var folderId = "1_AK0VpJ3rtq5xDVL0jg2ALWlZ8LJ9TWA";
-  // var data = await uploadFile(drive, filename, folderId);  
-}
-
 async function downloadFile(drive, filename, fileId) {
+
+// the code below is working versioning logic, but needs to be split up into a client facing order
+
 	const dest = fs.createWriteStream(filename);
 	const res = await drive.files.export(
 		{fileId, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
     	{responseType: 'stream'}
     );
+  console.log(res);
+  const { db } = app.locals;
+  const versionComments = db.collection('versionComments');
+
+  var bucket = new mongodb.GridFSBucket(db, {
+    chunkSizeBytes: 1024,
+    bucketName: 'versions'
+  });
+
+  var uploadStream = bucket.openUploadStream('test.dat');
+  var id = uploadStream.id;
+
+  await res.data.pipe(uploadStream).
+    on('error', function(error) {
+      assert.ifError(error);
+    }).
+    on('finish', function() {
+      console.log('done!');
+      // process.exit(0);
+    });
+
+
+  // var now = new Date();
+  // versionComments.findOneAndUpdate(
+  //   { time_stamp: now },
+  //   {
+  //     $setOnInsert: {
+  //       original_comment: "hardcoded comment",
+  //       versionName: filename,
+  //       time_stamp: now
+  //     },
+  //   },
+  //   {
+  //     returnOriginal: false,
+  //     upsert: true,
+  //   }
+  // );
+
+  // const bucket2 = new mongodb.GridFSBucket(db, {
+  //   chunkSizeBytes: 1024,
+  //   bucketName: 'versions'
+  // });
+  var CHUNKS_COLL = 'versions.chunks';
+  var FILES_COLL = 'versions.files';
+
+  var downloadStream = bucket.openDownloadStreamByName('test.dat');
+
+  uploadStream.once('finish', function() {
+    var downloadStream = bucket.openDownloadStreamByName('test.dat');
+
+    downloadStream.pipe(fs.createWriteStream('./output.docx')).
+      on('error', function(error) {
+        assert.ifError(error);
+      }).
+    on('finish', function() {
+      console.log('done2!');
+      // process.exit(0);
+    });
+  });
+
+  // bucket.openDownloadStreamByName('example').
+  //   pipe(fs.createWriteStream('./output.docx')).
+  //   on('error', function(error) {
+  //     assert.ifError(error);
+  //   }).
+  //   on('finish', function() {
+  //     console.log('done2!');
+  //     // process.exit(0);
+  // });
+
+
   return res;
  //  await new Promise((resolve, reject) => {
  //    res.data
