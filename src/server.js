@@ -47,23 +47,20 @@ app.post('/new', (req, res) => {
   fs.readFile('credentials.json', (err, content) => {
     if (err) return err;
     authorize(JSON.parse(content))
-    // .then(result => tokenize)
-    .catch(result => {
-      console.log(result);
+    .then(result => tokenize)
+    .then((fileId, result) => getDataFromGoogle)
+    .then(result => saveToMDB)
+    .then(result => {
+      const doc = result.value;
+      res.json({
+        original_comment: doc.original_comment, 
+        version: doc.version,
+        time_stamp: doc.time_stamp,
+      });
+    })
+    .catch(error => {
+      console.log(error);
     });
-    // .then((result, fileId) => getDataFromGoogle)
-    // .catch(console.log("problem with authorize method"))
-    // .then(result => saveToMDB)
-    // .catch(console.log("problem with getDataFromGoogle method"))
-    // .then(result => {
-    //   const doc = result.value;
-    //   res.json({
-    //     original_comment: doc.original_comment, 
-    //     version: doc.version,
-    //     time_stamp: doc.time_stamp,
-    //   });
-    // })
-    // .catch(console.log("problem with saveToMDB method"));
   });
  //  try {
 	// 	fs.readFile('credentials.json', (err, content) => {
@@ -102,15 +99,12 @@ app.post('/new', (req, res) => {
  * @param {function} callback The callback to call with the authorized client.
  */
 function authorize(credentials) {
-
   return new Promise((resolve, reject) => {
     
     const {client_secret, client_id, redirect_uris} = credentials.installed;
     const oAuth2Client = new google.auth.OAuth2(
         client_id, client_secret, redirect_uris[0]);
-
     resolve(oAuth2Client);
-    if (err) reject(err);
   });
 }
 
@@ -121,7 +115,6 @@ function tokenize(oauth) {
       oauth.setCredentials(JSON.parse(token));
     });
     resolve(result);
-    if (result == null) reject();
   });
 }
 
@@ -160,7 +153,6 @@ function getDataFromGoogle(fileId, auth) {
       {responseType: 'stream'}
     );
     resolve(result);
-    // if (result == null) reject();
   });
 }
 
@@ -189,10 +181,10 @@ function saveToMDB(res) {
     });
 
     // save file information to collection
-    var result = uploadStream.once('finish', function() {
+    uploadStream.once('finish', function() {
       const versionComments = db.collection('versionsDetail');
       today = new Date();
-      return versionsDetail.findOneAndUpdate(
+      var result = versionsDetail.findOneAndUpdate(
         { time_stamp: today },
         {
           $setOnInsert: {
