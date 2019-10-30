@@ -50,47 +50,16 @@ versionButton.addEventListener('click', event => {
 });
 
 downloadButton.addEventListener('click', event => {
-	// event.preventDefault();
+	event.preventDefault();
 
-	// const input = document.querySelector('.version-input');
-	
-	// if (input.value == "") {
- //    	alert("Please enter a comment");
- //    	return false;
- //  	} else {
-
-	// 	fetch('/new', {
-	// 		method: 'POST',
-	// 		headers: {
-	// 			'Accept': 'application/json',
-	// 			'Content-Type': 'application/json'
-	// 		},
-	// 		body: JSON.stringify({
-	// 			// the below may malfunction
-	// 			comment: input.value,
-	// 		})
-	// 	})
-	// 	.then(response => {
-	// 		if(!response.ok) {
-	// 			throw Error(response.statusText);
-	// 		}
-	// 		return response.json();
-	// 	})
-	// 	.then(data => {
-	// 		while (result.hasChildNodes()) {
-	// 			result.removeChild(result.lastChild);
-	// 		}
-	// 		result.insertAdjacentHTML('afterbegin', `
-	// 		<div class="result">
-	// 				<p class="success-flash">
-	// 					Successfully versioned document with "${data.original_comment}"
-	// 				</p>
-	// 			</div>
-	// 		`)
-	// 		input.value = "";
-
-
-	// 	})
-	// 	.catch(console.error)
-	// }
+	fetch('/existing', {
+		method: 'GET'
+	})
+	.then(response => {
+		if(!response.ok) {
+			throw Error(response.statusText);
+		}
+		console.log(response);
+	})
+	.catch(console.error);
 });

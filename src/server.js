@@ -8,7 +8,8 @@ const fs = require('fs');
 const readline = require('readline');
 const {google} = require('googleapis');
 const os = require('os');
-test = require('assert');
+const test = require('assert');
+var http = require('http');
 
 // If modifying these scopes, delete token.json to allow for re-permissioning
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
@@ -27,157 +28,168 @@ mongodb.MongoClient.connect(databaseURL, { useNewUrlParser: true })
 	})
 	.catch(console.error('Failed to connect to the database'));
 
-// returns a document that matches the filter object passed to it or null
-// if no documents match the filter
-// const checkIfShortIdExists = (db, code) => db.collection('shortenedURLS')
-//	 .findOne({ short_id: code });
-
 app.get('/', (req, res) => {
 	const htmlPath = path.join(__dirname, 'public', 'index.html');
 	res.sendFile(htmlPath);
 });
 
 app.post('/new', (req, res) => {
-	let comment, content, data;
-	comment = req.body.comment;
+	var comment = req.body.comment;
 	try {
 		fs.readFile('credentials.json', (err, content) => {
-		  data = authorize(JSON.parse(content), downloadFileToMDB);
+		  authorize(JSON.parse(content), comment, downloadFileToMDB)
+      .then(result => {
+        console.log(result);
+        const doc = result.value;
+        res.json({
+          original_comment: doc.original_comment, 
+          version: doc.version,
+          time_stamp: doc.time_stamp,
+       });
+      })
+      .catch(err => {
+        console.log(err)
+      });
 		});
 	} catch (err) {
-		return res.status(404).send(err);
+		return res.send(err);
 	}
-  console.log(data);
- //  const { db } = req.app.locals;
-	// saveVersion(db, data, comment)
-	// .then(result => {
-	// 	const doc = result.value;
-	// 	res.json({
-	// 		original_comment: doc.original_comment,	
- //      version: doc.version,
-	// 		time_stamp: doc.time_stamp,
-	// 	});
-	// })
-	// .catch(console.error);
 });
+
+app.get('/existing', (req, res) => {
+  const { db } = req.app.locals;
+  var today = new Date();
+  const filename = `Portland_ME_script_draft_v${today.getDate()}.${today.getMonth()+1}.${today.getFullYear()}.docx`;
+  
+  downloadDoc(db, filename)
+    .then(result => {
+      if (result === null) return res.send('result is null');
+
+      var filePath = path.join(__dirname, filename);
+
+      res.writeHead(200, {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      
+      var writeStream = fs.createWriteStream(filePath);
+      result.pipe(writeStream).
+      on('error', function(error) {
+          assert.ifError(error);
+        }).
+      on('finish', function() {
+        console.log('success!');
+      });
+      // add message to the client about download success
+    })
+    .catch(console.error);
+});
+
+function downloadDoc(db, filename) {
+  return new Promise((resolve, reject) => {
+    var today = new Date();
+
+    var bucket = new mongodb.GridFSBucket(db, {
+      chunkSizeBytes: 1024,
+      bucketName: 'versions'
+    });
+
+    resolve(bucket.openDownloadStreamByName(filename));
+  }); 
+}
+
 
 /**
  * Create an OAuth2 client with the given credentials, and then execute the
  * given callback function.
  * @param {Object} credentials The authorization client credentials.
+ * @param {String} comment A comment given by the client.
  * @param {function} callback The callback to call with the authorized client.
  */
-function authorize(credentials, callback) {
-  const {client_secret, client_id, redirect_uris} = credentials.installed;
-  const oAuth2Client = new google.auth.OAuth2(
-      client_id, client_secret, redirect_uris[0]);
+function authorize(credentials, comment, callback) {
+  return new Promise((resolve, reject) => {
+    const {client_secret, client_id, redirect_uris} = credentials.installed;
+    const oAuth2Client = new google.auth.OAuth2(
+        client_id, client_secret, redirect_uris[0]);
 
-  // Check if we have previously stored a token.
-  return fs.readFile(TOKEN_PATH, (err, token) => {
-    if (err) return getAccessToken(oAuth2Client, callback);
-    oAuth2Client.setCredentials(JSON.parse(token));
-    return callback(oAuth2Client);
+    // Check if we have previously stored a token.
+    fs.readFile(TOKEN_PATH, (err, token) => {
+      if (err) return getAccessToken(oAuth2Client, callback);
+      oAuth2Client.setCredentials(JSON.parse(token));
+      resolve(callback(oAuth2Client, comment));
+    });
   });
 }
 
 /**
- * Lists the names and IDs of up to 10 files.
+ * Download file to Mongo
  * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
+ * @param {String} comment A comment given by the client.
  */
-async function downloadFileToMDB(auth) {
-  const drive = google.drive({version: 'v3', auth});
+function downloadFileToMDB(auth, comment) {
+  return new Promise((resolve, reject) => {
+    const drive = google.drive({version: 'v3', auth});
 
-  var today = new Date();
+    var today = new Date();
 
-  // file information that can likely be saved with authentication
-  const fileId = '13eyL9rx1IxoTwztTcDu9XXKVal2NF0ehIInezKOzGLg';
-  const filename = `Portland_ME_script_draft_v${today.getDate()}.${today.getMonth()+1}.${today.getFullYear()}.docx`;
+    // file information that can likely be saved with authentication
+    const fileId = '13eyL9rx1IxoTwztTcDu9XXKVal2NF0ehIInezKOzGLg';
+    const filename = `Portland_ME_script_draft_v${today.getDate()}.${today.getMonth()+1}.${today.getFullYear()}.docx`;
 
-  const dest = fs.createWriteStream(filename);
-  const res = await drive.files.export(
-    {fileId, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
-      {responseType: 'stream'}
+    const { db } = app.locals;
+
+    var bucket = new mongodb.GridFSBucket(db, {
+      chunkSizeBytes: 1024,
+      bucketName: 'versions'
+    });
+
+    var uploadStream = bucket.openUploadStream(filename);
+
+    drive.files.export(
+      {fileId, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
+        {responseType: 'stream'}
+      ).then(result => {
+        result.data.pipe(uploadStream).
+        on('error', function(error) {
+          assert.ifError(error);
+        }).
+        on('finish', function() {
+          console.log('done!');
+        });
+    });
+    // var id = uploadStream.id;
+
+    // var downloadStream = bucket.openDownloadStreamByName(filename);
+
+    // uploadStream.once('finish', function() {
+    //   downloadStream.pipe(fs.createWriteStream(filename)).
+    //     on('error', function(error) {
+    //       assert.ifError(error);
+    //     }).
+    //   on('finish', function() {
+    //     console.log('done2!');
+    //   });
+    // });
+
+    const versions = db.collection('versions');
+    var now = new Date();
+    var result = versions.findOneAndUpdate(
+      { time_stamp: now },
+      {
+        $setOnInsert: {
+          original_comment: comment,
+          versionName: filename,
+          time_stamp: now
+        },
+      },
+      {
+        returnOriginal: false,
+        upsert: true,
+      }
     );
 
-  const { db } = app.locals;
+    resolve(result);
 
-  var bucket = new mongodb.GridFSBucket(db, {
-    chunkSizeBytes: 1024,
-    bucketName: 'versions'
   });
-
-  // file saved
-  var uploadStream = bucket.openUploadStream('test.dat');
-  var id = uploadStream.id;
-
-  res.data.pipe(uploadStream).
-    on('error', function(error) {
-      assert.ifError(error);
-    }).
-    on('finish', function() {
-      console.log('done!');
-    });
-
-
-  var downloadStream = bucket.openDownloadStreamByName('test.dat');
-
-  uploadStream.once('finish', function() {
-    var downloadStream = bucket.openDownloadStreamByName('test.dat');
-
-    downloadStream.pipe(fs.createWriteStream('./output.docx')).
-      on('error', function(error) {
-        assert.ifError(error);
-      }).
-    on('finish', function() {
-      console.log('done2!');
-      // process.exit(0);
-    });
-  });
-
-
-  // version saved
-  const versionComments = db.collection('versions');
-  var now = new Date();
-  versionComments.findOneAndUpdate(
-    { time_stamp: now },
-    {
-      $setOnInsert: {
-        original_comment: "hardcoded comment",
-        versionName: filename,
-        time_stamp: now
-      },
-    },
-    {
-      returnOriginal: false,
-      upsert: true,
-    }
-  );
-
-
-  // take out await
-  // var res = await downloadFile(drive, filename, fileId);
-
-  // var folderId = "1_AK0VpJ3rtq5xDVL0jg2ALWlZ8LJ9TWA";
-  // var data = await uploadFile(drive, filename, folderId);  
-}
-
-const saveVersion = (db, data, comment) => {
-  const versionComments = db.collection('versionComments');
-  var now = new Date();
-  return versionComments.findOneAndUpdate(
-    { time_stamp: now },
-    {
-      $setOnInsert: {
-        original_comment: comment,
-        version: data,
-        time_stamp: now
-      },
-    },
-    {
-      returnOriginal: false,
-      upsert: true,
-    }
-  );
 }
 
 /**
@@ -210,127 +222,6 @@ function getAccessToken(oAuth2Client, callback) {
     });
   });
 }
-
-async function downloadFile(drive, filename, fileId) {
-
-// the code below is working versioning logic, but needs to be split up into a client facing order
-
-	const dest = fs.createWriteStream(filename);
-	const res = await drive.files.export(
-		{fileId, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
-    	{responseType: 'stream'}
-    );
-  console.log(res);
-  const { db } = app.locals;
-  const versionComments = db.collection('versionComments');
-
-  var bucket = new mongodb.GridFSBucket(db, {
-    chunkSizeBytes: 1024,
-    bucketName: 'versions'
-  });
-
-  var uploadStream = bucket.openUploadStream('test.dat');
-  var id = uploadStream.id;
-
-  await res.data.pipe(uploadStream).
-    on('error', function(error) {
-      assert.ifError(error);
-    }).
-    on('finish', function() {
-      console.log('done!');
-      // process.exit(0);
-    });
-
-
-  // var now = new Date();
-  // versionComments.findOneAndUpdate(
-  //   { time_stamp: now },
-  //   {
-  //     $setOnInsert: {
-  //       original_comment: "hardcoded comment",
-  //       versionName: filename,
-  //       time_stamp: now
-  //     },
-  //   },
-  //   {
-  //     returnOriginal: false,
-  //     upsert: true,
-  //   }
-  // );
-
-  // const bucket2 = new mongodb.GridFSBucket(db, {
-  //   chunkSizeBytes: 1024,
-  //   bucketName: 'versions'
-  // });
-  var CHUNKS_COLL = 'versions.chunks';
-  var FILES_COLL = 'versions.files';
-
-  var downloadStream = bucket.openDownloadStreamByName('test.dat');
-
-  uploadStream.once('finish', function() {
-    var downloadStream = bucket.openDownloadStreamByName('test.dat');
-
-    downloadStream.pipe(fs.createWriteStream('./output.docx')).
-      on('error', function(error) {
-        assert.ifError(error);
-      }).
-    on('finish', function() {
-      console.log('done2!');
-      // process.exit(0);
-    });
-  });
-
-  // bucket.openDownloadStreamByName('example').
-  //   pipe(fs.createWriteStream('./output.docx')).
-  //   on('error', function(error) {
-  //     assert.ifError(error);
-  //   }).
-  //   on('finish', function() {
-  //     console.log('done2!');
-  //     // process.exit(0);
-  // });
-
-
-  return res;
- //  await new Promise((resolve, reject) => {
- //    res.data
- //      .on('error', reject)
- //      .on('finish', resolve);
-	// }).then(() => {
- //    return res.data;3
- //  })
-}
-
-async function uploadFile(drive, filename, folderId) {
-	const fileSize = fs.statSync(filename).size;
-  	const res = await drive.files.create(
-  	{
-      resource: {
-      	'name': filename,
-		// parents as Collections.singletonList(folderId)
-		parents: [folderId]
-      },
-      media: {
-      	// should upload as google docs format but broken
-      	mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        body: fs.createReadStream(filename)
-      },
-    },
-  );
-  return res.data;
-}
-
-// // redirect them to the orginal URLs
-// app.get('/:short_id', (req, res) => {
-// 	const shortId = req.params.short_id;
-// 	const { db } = req.app.locals;
-// 	checkIfShortIdExists(db, shortId)
-// 		.then(doc => {
-// 			if (doc === null) return res.send('could not find a link at that URL');
-// 			res.redirect(doc.original_url);
-// 		})
-// 		.catch(console.error);
-// });
 
 app.set('port', process.env.PORT || 3000);
 

@@ -90,9 +90,8 @@ body {
   background-color: var(--green);
 }
 
-
 .result {
-  margin-top: 50px;
+  /*margin-top: 50px;*/
   max-width: 600px;
   width: 100%;
   border: 1px solid #ddd;
@@ -101,7 +100,9 @@ body {
   border: 5px solid #553c2b;
   border-radius: 5px;
   text-align: center;
+  margin-bottom: 30px;
 }
+
 .success-flash {
   color: white;
   font-size: 26px;
@@ -109,6 +110,3 @@ body {
   text-decoration: none;
 }
 
-.short-url:hover {
-  border-bottom: 2px solid white;
-}
