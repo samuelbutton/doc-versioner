@@ -39,25 +39,19 @@ app.get('/', (req, res) => {
 
 app.post('/new', (req, res) => {
 	var comment = req.body.comment;
-	try {
-		fs.readFile('credentials.json', (err, content) => {
-		  authorize(JSON.parse(content), comment, downloadFileToMDB)
-      .then(result => {
-        console.log(result);
-        const doc = result.value;
-        res.json({
-          original_comment: doc.original_comment, 
-          version: doc.version,
-          time_stamp: doc.time_stamp,
-       });
-      })
-      .catch(err => {
-        console.log(err)
-      });
-		});
-	} catch (err) {
-		return res.send(err);
-	}
+  authorize(comment, downloadFileToMDB)
+  .then(result => {
+    console.log(result);
+    const doc = result.value;
+    res.json({
+      original_comment: doc.original_comment, 
+      version: doc.version,
+      time_stamp: doc.time_stamp,
+   });
+  })
+  .catch(err => {
+    res.send(err);
+  });
 });
 
 app.get('/existing', (req, res) => {
@@ -109,18 +103,14 @@ function downloadDoc(db, filename) {
  * @param {String} comment A comment given by the client.
  * @param {function} callback The callback to call with the authorized client.
  */
-function authorize(credentials, comment, callback) {
+function authorize(comment, callback) {
   return new Promise((resolve, reject) => {
-    const {client_secret, client_id, redirect_uris} = credentials.installed;
     const oAuth2Client = new google.auth.OAuth2(
-        client_id, client_secret, redirect_uris[0]);
+        client_id, client_secret, redirect_uris);
 
     // Check if we have previously stored a token.
-    fs.readFile(TOKEN_PATH, (err, token) => {
-      if (err) return getAccessToken(oAuth2Client, callback);
-      oAuth2Client.setCredentials(JSON.parse(token));
-      resolve(callback(oAuth2Client, comment));
-    });
+    oAuth2Client.setCredentials(JSON.parse(token));
+    resolve(callback(oAuth2Client, comment));
   });
 }
 
