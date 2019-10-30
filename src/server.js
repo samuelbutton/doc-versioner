@@ -10,6 +10,7 @@ const {google} = require('googleapis');
 const os = require('os');
 const test = require('assert');
 var http = require('http');
+const downloadsFolder = require('downloads-folder');
 
 // If modifying these scopes, delete token.json to allow for re-permissioning
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
@@ -63,21 +64,20 @@ app.get('/existing', (req, res) => {
     .then(result => {
       if (result === null) return res.send('result is null');
 
-      var filePath = path.join(__dirname, filename);
+      var filePath = path.join(downloadsFolder(), filename);
 
-      res.writeHead(200, {
-          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      });
+      // res.writeHead(200);
       
       var writeStream = fs.createWriteStream(filePath);
-      result.pipe(writeStream).
-      on('error', function(error) {
-          assert.ifError(error);
-        }).
-      on('finish', function() {
-        console.log('success!');
-      });
       // add message to the client about download success
+      result.pipe(writeStream).
+        on('error', function(error) {
+            assert.ifError(error);
+          }).
+        on('finish', function() {
+          console.log('success!');
+          res.send('download successful');
+        });
     })
     .catch(console.error);
 });
