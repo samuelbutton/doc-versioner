@@ -16,6 +16,10 @@ const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_PATH = 'token.json';
 
 const databaseURL = process.env.DATABASE;
+const client_secret = process.env.CLIENT_SECRET;
+const client_id = process.env.CLIENT_ID;
+const redirect_uris = process.env.REDIRECT_URIS;
+const token = process.env.TOKEN;
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -156,19 +160,6 @@ function downloadFileToMDB(auth, comment) {
           console.log('done!');
         });
     });
-    // var id = uploadStream.id;
-
-    // var downloadStream = bucket.openDownloadStreamByName(filename);
-
-    // uploadStream.once('finish', function() {
-    //   downloadStream.pipe(fs.createWriteStream(filename)).
-    //     on('error', function(error) {
-    //       assert.ifError(error);
-    //     }).
-    //   on('finish', function() {
-    //     console.log('done2!');
-    //   });
-    // });
 
     const versions = db.collection('versions');
     var now = new Date();
