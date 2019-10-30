@@ -41,7 +41,7 @@ app.post('/new', (req, res) => {
 	var comment = req.body.comment;
   authorize(comment, downloadFileToMDB)
   .then(result => {
-    console.log(result);
+    // console.log(result);
     const doc = result.value;
     res.json({
       original_comment: doc.original_comment, 
